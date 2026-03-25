@@ -9,17 +9,22 @@
 #include "credentials.h"
 #include "Adafruit_BME280.h"
 #include "Adafruit_SSD1306.h"
+#include "Adafruit_GFX.h"
 #include "IotClassroom_CNM.h"
 #include "Grove_Air_quality_Sensor.h"
 #include <Adafruit_MQTT.h>
 #include "Adafruit_MQTT/Adafruit_MQTT_SPARK.h"
 #include "Adafruit_MQTT/Adafruit_MQTT.h"
 
-TCPClient TheClient; 
-Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
+ TCPClient TheClient; 
+ Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
 
 Adafruit_MQTT_Subscribe pumpFeed = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/Pump"); 
 Adafruit_MQTT_Publish sensorFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature, Moisture, Air quality");
+Adafruit_MQTT_Publish pubAQ = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Air Quality");  
+Adafruit_MQTT_Publish pubTemp = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature"); 
+Adafruit_MQTT_Publish pubMoist = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Moisture"); 
+Adafruit_MQTT_Publish pubHumid = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Humidity");
 
 SYSTEM_MODE(AUTOMATIC);
 
@@ -29,98 +34,179 @@ SYSTEM_THREAD(ENABLED);
 const int OLED_RESET=-1;
 Adafruit_SSD1306 display(OLED_RESET);
 Adafruit_BME280 bme;
-AirQualitySensor sensor(A5);
+AirQualitySensor airSensor(A5);
 
+const int soilSensor = A0;
+const int pump = D9;
 bool status;
-bool timer;
-float temp, press, humid, Fah, inHg;
-float temptoFah(float measurement);
-float presstoinHg(float measurement);
-unsigned int msec=500;
-unsigned int last, lastTime;
-float subValue,pubValue;
+bool bmeStatus = false;
+float tempC = 0.0;
+float tempF = 0.0;
+float pressurePa = 0.0;
+float pressureInHg = 0.0;
+float humid = 0.0;
+int soilRead = 0;
+int airQuality = 0;
+float pumpCommand = 0.0;
+float tempToFah(float measurement);
+float pressureToInHg(float measurementPa);
 void MQTT_connect();
 bool MQTT_ping();
+unsigned long lastDisplayMs = 0;
+unsigned long lastReadMs = 0;
+unsigned long lastPublishMs = 0;
+unsigned long pumpUntilMs = 0;
+
 
 void setup() {
   
   Serial.begin(9600);
   waitFor(Serial.isConnected, 10000);
+  pinMode(pump,OUTPUT);
+  Serial.begin(9600);
+    waitFor(Serial.isConnected, 10000);
+    
+    pinMode(pump, OUTPUT);
+    digitalWrite(pump, LOW);
 
-  WiFi.on();
-  WiFi.connect();
-  while(WiFi.connecting()) {
-    Serial.printf(".");
-  } 
-  Serial.printf("\n\n");
+    pinMode(soilSensor, INPUT);
+
+    mqtt.subscribe(&pumpFeed);
   
-  mqtt.subscribe(&pumpFeed);
-
-  while (!Serial);
-
-  Serial.printf("Waiting sensor to init...");
-   delay(20000);
-
-      if (sensor.init()) {
-         Serial.printf("Sensor ready.");
-     } else {
-         Serial.printf("Sensor ERROR!");
-     }
-
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-
-  display.display();
-  delay(2000);
-  display.clearDisplay();
-
-   status= bme.begin(0x76);
+    display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+    display.clearDisplay();
+    display.setTextColor(WHITE);
+    display.display();
+    
+    bmeStatus = bme.begin(0x76);
+    if (bmeStatus) {
+        Serial.println("BME280 ready.");
+    } else {
+        Serial.println("BME280 not found.");
+    Serial.println("Initializing air quality sensor...");
+    delay(2000);
+    if (airSensor.init()) {
+        Serial.println("Air quality sensor ready.");
+    } else {
+        Serial.println("Air quality sensor ERROR.");
+    }
+ }
 }
-
 
 void loop() {
-   temp = bme.readTemperature();
-   press = bme.readPressure();
-   humid = bme.readHumidity(); 
-   Fah = temptoFah(temp);
-   inHg = presstoinHg(press);
- 
-    int quality = sensor.slope();
+    MQTT_connect();
+    MQTT_ping();
 
-     Serial.printf("Sensor value: ");
-     Serial.printf("Sensor value: %d\n", sensor.getValue());
+    Adafruit_MQTT_Subscribe *subscription;
+    while ((subscription = mqtt.readSubscription(10))) {
+        if (subscription == &pumpFeed) {
+            pumpCommand = atof((char *)pumpFeed.lastread);
+            Serial.printf("Pump feed value: %.1f\n", pumpCommand);
 
-     if (quality == AirQualitySensor::FORCE_SIGNAL) {
-         Serial.printf("High pollution! Force signal active.");
-     } else if (quality == AirQualitySensor::HIGH_POLLUTION) {
-         Serial.printf("High pollution!");
-     } else if (quality == AirQualitySensor::LOW_POLLUTION) {
-         Serial.printf("Low pollution!");
-     } else if (quality == AirQualitySensor::FRESH_AIR) {
-         Serial.printf("Fresh air.");
-     }
+            if (pumpCommand > 0.5) {
+                pumpUntilMs = millis() + 2000;
+            }
+        }
+    }
 
-     delay(1000);
+    if (millis() < pumpUntilMs) {
+        digitalWrite(pump, HIGH);
+    } else {
+        digitalWrite(pump, LOW);
+    }
 
-    if (timer == true) {
-    Serial.printf("%0.1f %0.2f %0.1f", Fah,inHg,humid);
+    if (millis() - lastReadMs >= 1000) {
+        lastReadMs = millis();
 
-    display.setTextSize(1);
-    display.setTextColor(WHITE);
-    display.setCursor(0,0); 
-    display.printf("%0.1f %0.1f %0.1f", Fah,inHg,humid);
-    display.display();
-    display.clearDisplay();
-  }
+        if (bmeStatus) {
+            tempC = bme.readTemperature();
+            pressurePa = bme.readPressure();
+            humid = bme.readHumidity();
+
+            tempF = tempToFah(tempC);
+            pressureInHg = pressureToInHg(pressurePa);
+        }
+
+        soilRead = analogRead(soilSensor);
+        airQuality = airSensor.slope();
+
+        Serial.printf("TempF: %.1f  Press: %.2f inHg  Humid: %.1f  Soil: %d  AQ raw: %d\n",
+                      tempF, pressureInHg, humid, soilRead, airSensor.getValue());
+
+        if (airQuality == AirQualitySensor::FORCE_SIGNAL) {
+            Serial.println("Air quality: High pollution! Force signal active.");
+        } else if (airQuality == AirQualitySensor::HIGH_POLLUTION) {
+            Serial.println("Air quality: High pollution.");
+        } else if (airQuality == AirQualitySensor::LOW_POLLUTION) {
+            Serial.println("Air quality: Low pollution.");
+        } else if (airQuality == AirQualitySensor::FRESH_AIR) {
+            Serial.println("Air quality: Fresh air.");
+        }
+    }
+
+    if (millis() - lastDisplayMs >= 1000) {
+        lastDisplayMs = millis();
+
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setCursor(0, 0);
+        display.printf("Temp: %.1f F\n", tempF);
+        display.printf("Pres: %.2f inHg\n", pressureInHg);
+        display.printf("Hum : %.1f %%\n", humid);
+        display.printf("Soil: %d\n", soilRead);
+        display.printf("Air : %d\n", airQuality);
+        display.display();
+    }
+
+    if (millis() - lastPublishMs >= 10000) {
+        lastPublishMs = millis();
+
+        if (mqtt.connected()) {
+            pubTemp.publish(tempF);
+            pubMoist.publish(soilRead);
+            pubHumid.publish(humid);
+            pubAQ.publish(airQuality);
+
+            Serial.println("Published sensor data to Adafruit IO.");
+        }
+    }
 }
 
- float temptoFah(float measurement){
-    float result;
-    result = (9/5.0)*measurement+32;
-    return result;
+float tempToFah(float measurement) {
+    return (9.0 / 5.0) * measurement + 32.0;
 }
 
-    float presstoinHg(float measurement){
-    float reading;
-    reading = .0002*press;
-    return reading;
+float pressureToInHg(float measurementPa) {
+    return measurementPa * 0.0002953;
+}
+
+void MQTT_connect() {
+    if (mqtt.connected()) {
+        return;
+    }
+
+    Serial.print("Connecting to MQTT... ");
+
+    int8_t ret;
+    while ((ret = mqtt.connect()) != 0) {
+        Serial.printf("MQTT connect failed: %s\n", mqtt.connectErrorString(ret));
+        Serial.println("Retrying MQTT connection in 5 seconds...");
+        mqtt.disconnect();
+        delay(5000);
+    }
+
+    Serial.println("MQTT connected.");
+}
+
+bool MQTT_ping() {
+    static unsigned long lastPing = 0;
+
+    if (millis() - lastPing > 120000) {
+        lastPing = millis();
+        if (!mqtt.ping()) {
+            mqtt.disconnect();
+            return false;
+        }
+    }
+    return true;
 }
