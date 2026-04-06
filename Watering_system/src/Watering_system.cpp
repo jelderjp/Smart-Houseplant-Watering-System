@@ -20,8 +20,8 @@
  Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
 
 Adafruit_MQTT_Subscribe pumpFeed = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/Pump"); 
-Adafruit_MQTT_Publish sensorFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature, Moisture, Air quality");
-Adafruit_MQTT_Publish pubAQ = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Air Quality");  
+Adafruit_MQTT_Publish sensorFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature, Moisture, Air_quality");
+Adafruit_MQTT_Publish pubAQ = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Air_Quality");  
 Adafruit_MQTT_Publish pubTemp = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature"); 
 Adafruit_MQTT_Publish pubMoist = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Moisture"); 
 Adafruit_MQTT_Publish pubHumid = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Humidity");
@@ -61,9 +61,6 @@ unsigned long pumpUntilMs = 0;
 void setup() {
   
   Serial.begin(9600);
-  waitFor(Serial.isConnected, 10000);
-  pinMode(pump,OUTPUT);
-  Serial.begin(9600);
     waitFor(Serial.isConnected, 10000);
     
     pinMode(pump, OUTPUT);
@@ -80,15 +77,15 @@ void setup() {
     
     bmeStatus = bme.begin(0x76);
     if (bmeStatus) {
-        Serial.println("BME280 ready.");
+        Serial.printf("BME280 ready.");
     } else {
-        Serial.println("BME280 not found.");
-    Serial.println("Initializing air quality sensor...");
+        Serial.printf("BME280 not found.");
+    Serial.printf("Initializing air quality sensor...");
     delay(2000);
     if (airSensor.init()) {
-        Serial.println("Air quality sensor ready.");
+        Serial.printf("Air quality sensor ready.");
     } else {
-        Serial.println("Air quality sensor ERROR.");
+        Serial.printf("Air quality sensor ERROR.");
     }
  }
 }
@@ -104,7 +101,7 @@ void loop() {
             Serial.printf("Pump feed value: %.1f\n", pumpCommand);
 
             if (pumpCommand > 0.5) {
-                pumpUntilMs = millis() + 2000;
+                pumpUntilMs = millis() + 500;
             }
         }
     }
@@ -167,7 +164,7 @@ void loop() {
             pubHumid.publish(humid);
             pubAQ.publish(airQuality);
 
-            Serial.println("Published sensor data to Adafruit IO.");
+            Serial.printf("Published sensor data to Adafruit IO.");
         }
     }
 }
@@ -185,17 +182,17 @@ void MQTT_connect() {
         return;
     }
 
-    Serial.print("Connecting to MQTT... ");
+    Serial.printf("Connecting to MQTT... ");
 
     int8_t ret;
     while ((ret = mqtt.connect()) != 0) {
         Serial.printf("MQTT connect failed: %s\n", mqtt.connectErrorString(ret));
-        Serial.println("Retrying MQTT connection in 5 seconds...");
+        Serial.printf("Retrying MQTT connection in 5 seconds...");
         mqtt.disconnect();
         delay(5000);
     }
 
-    Serial.println("MQTT connected.");
+    Serial.printf("MQTT connected.");
 }
 
 bool MQTT_ping() {
