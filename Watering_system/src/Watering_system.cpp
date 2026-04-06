@@ -20,16 +20,13 @@
  Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
 
 Adafruit_MQTT_Subscribe pumpFeed = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/Pump"); 
-Adafruit_MQTT_Publish sensorFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature, Moisture, Air_quality");
+Adafruit_MQTT_Publish sensorFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature, Moisture, Humidity, Air_quality");
 Adafruit_MQTT_Publish pubAQ = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Air_Quality");  
 Adafruit_MQTT_Publish pubTemp = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature"); 
 Adafruit_MQTT_Publish pubMoist = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Moisture"); 
 Adafruit_MQTT_Publish pubHumid = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Humidity");
 
 SYSTEM_MODE(AUTOMATIC);
-
-
-SYSTEM_THREAD(ENABLED);
 
 const int OLED_RESET=-1;
 Adafruit_SSD1306 display(OLED_RESET);
@@ -112,7 +109,7 @@ void loop() {
         digitalWrite(pump, LOW);
     }
 
-    if (millis() - lastReadMs >= 1000) {
+    if (millis() - lastReadMs >= 5000) {
         lastReadMs = millis();
 
         if (bmeStatus) {
@@ -131,17 +128,17 @@ void loop() {
                       tempF, pressureInHg, humid, soilRead, airSensor.getValue());
 
         if (airQuality == AirQualitySensor::FORCE_SIGNAL) {
-            Serial.println("Air quality: High pollution! Force signal active.");
+            Serial.printf("Air quality: High pollution! Force signal active.");
         } else if (airQuality == AirQualitySensor::HIGH_POLLUTION) {
-            Serial.println("Air quality: High pollution.");
+            Serial.printf("Air quality: High pollution.");
         } else if (airQuality == AirQualitySensor::LOW_POLLUTION) {
-            Serial.println("Air quality: Low pollution.");
+            Serial.printf("Air quality: Low pollution.");
         } else if (airQuality == AirQualitySensor::FRESH_AIR) {
-            Serial.println("Air quality: Fresh air.");
+            Serial.printf("Air quality: Fresh air.");
         }
     }
 
-    if (millis() - lastDisplayMs >= 1000) {
+    if (millis() - lastDisplayMs >= 10000) {
         lastDisplayMs = millis();
 
         display.clearDisplay();
