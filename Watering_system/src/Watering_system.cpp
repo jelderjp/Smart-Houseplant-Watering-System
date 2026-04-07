@@ -46,7 +46,7 @@ float pressureInHg = 0.0;
 float humid = 0.0;
 int soilRead = 0;
 int airQuality = 0;
-bool pumpCommand;
+int pumpCommand = 0;
 float tempToFah(float measurement);
 float pressureToInHg(float measurementPa);
 void MQTT_connect();
@@ -96,9 +96,9 @@ void loop() {
     MQTT_ping();
 
     Adafruit_MQTT_Subscribe *subscription;
-    while ((subscription = mqtt.readSubscription())) {
+    while ((subscription = mqtt.readSubscription(200))) {
         if (subscription == &pumpFeed) {
-            pumpCommand = atof((char *)pumpFeed.lastread);
+            pumpCommand = atoi((char *)pumpFeed.lastread);
             Serial.printf("Pump feed value: %f\n", pumpCommand);
 
             if (pumpCommand > 0.5) {
@@ -119,7 +119,8 @@ void loop() {
         digitalWrite(pump, LOW);
     }
     }
-}
+//}
+   
     if (millis() - lastReadMs >= 5000) {
         lastReadMs = millis();
 
@@ -134,6 +135,11 @@ void loop() {
 
         soilRead = analogRead(soilSensor);
         airQuality = airSensor.slope();
+
+         if (soilRead < 1500){
+        pumpUntilMs = millis() + 500; pubPump.publish(0.0);  
+
+    }
 
         Serial.printf("TempF: %.1f  Press: %.2f inHg  Humid: %.1f  Soil: %d  AQ raw: %d\n",
                       tempF, pressureInHg, humid, soilRead, airSensor.getValue());
@@ -163,7 +169,7 @@ void loop() {
         display.display();
     }
 
-    if (millis() - lastPublishMs >= 10000) {
+    if (millis() - lastPublishMs >= 15000) {
         lastPublishMs = millis();
 
         if (mqtt.connected()) {
@@ -171,11 +177,12 @@ void loop() {
             pubMoist.publish(soilRead);
             pubHumid.publish(humid);
             pubAQ.publish(airQuality);
+            delay(10000);
 
             Serial.printf("Published sensor data to Adafruit IO.");
             }
        }
-    
+}
     float tempToFah(float measurement) {
     return (9.0 / 5.0) * measurement + 32.0;
 }
