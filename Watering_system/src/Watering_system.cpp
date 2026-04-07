@@ -16,8 +16,8 @@
 #include "Adafruit_MQTT/Adafruit_MQTT_SPARK.h"
 #include "Adafruit_MQTT/Adafruit_MQTT.h"
 
- TCPClient TheClient; 
- Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
+TCPClient TheClient; 
+Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
 
 Adafruit_MQTT_Subscribe pumpFeed = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/Pump"); 
 Adafruit_MQTT_Publish sensorFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature, Moisture, Humidity, Air_quality");
@@ -25,6 +25,7 @@ Adafruit_MQTT_Publish pubAQ = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/
 Adafruit_MQTT_Publish pubTemp = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature"); 
 Adafruit_MQTT_Publish pubMoist = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Moisture"); 
 Adafruit_MQTT_Publish pubHumid = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Humidity");
+Adafruit_MQTT_Publish pubPump = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Pump");
 
 SYSTEM_MODE(AUTOMATIC);
 
@@ -37,6 +38,7 @@ const int soilSensor = A0;
 const int pump = D9;
 bool status;
 bool bmeStatus = false;
+bool pumpRunning = false;
 float tempC = 0.0;
 float tempF = 0.0;
 float pressurePa = 0.0;
@@ -44,7 +46,7 @@ float pressureInHg = 0.0;
 float humid = 0.0;
 int soilRead = 0;
 int airQuality = 0;
-float pumpCommand = 0.0;
+bool pumpCommand;
 float tempToFah(float measurement);
 float pressureToInHg(float measurementPa);
 void MQTT_connect();
@@ -77,6 +79,8 @@ void setup() {
         Serial.printf("BME280 ready.");
     } else {
         Serial.printf("BME280 not found.");
+    }
+
     Serial.printf("Initializing air quality sensor...");
     delay(2000);
     if (airSensor.init()) {
@@ -85,30 +89,37 @@ void setup() {
         Serial.printf("Air quality sensor ERROR.");
     }
  }
-}
+
 
 void loop() {
     MQTT_connect();
     MQTT_ping();
 
     Adafruit_MQTT_Subscribe *subscription;
-    while ((subscription = mqtt.readSubscription(10))) {
+    while ((subscription = mqtt.readSubscription())) {
         if (subscription == &pumpFeed) {
             pumpCommand = atof((char *)pumpFeed.lastread);
-            Serial.printf("Pump feed value: %.1f\n", pumpCommand);
+            Serial.printf("Pump feed value: %f\n", pumpCommand);
 
             if (pumpCommand > 0.5) {
-                pumpUntilMs = millis() + 500;
+                 pumpUntilMs = millis() + 500; pubPump.publish(0.0);  // reset feed so it doesn't re-trigger}
+            if (pumpCommand > 0.5 && !pumpRunning) {
+                    pumpUntilMs = millis() + 500;
+                    pumpRunning = true;
+    }
+        if (pumpCommand <= 0.5) {
+            pumpRunning = false;
             }
         }
-    }
+     }
 
     if (millis() < pumpUntilMs) {
         digitalWrite(pump, HIGH);
     } else {
         digitalWrite(pump, LOW);
     }
-
+    }
+}
     if (millis() - lastReadMs >= 5000) {
         lastReadMs = millis();
 
@@ -162,19 +173,18 @@ void loop() {
             pubAQ.publish(airQuality);
 
             Serial.printf("Published sensor data to Adafruit IO.");
-        }
-    }
-}
-
-float tempToFah(float measurement) {
+            }
+       }
+    
+    float tempToFah(float measurement) {
     return (9.0 / 5.0) * measurement + 32.0;
 }
 
-float pressureToInHg(float measurementPa) {
+    float pressureToInHg(float measurementPa) {
     return measurementPa * 0.0002953;
 }
 
-void MQTT_connect() {
+    void MQTT_connect() {
     if (mqtt.connected()) {
         return;
     }
@@ -192,7 +202,7 @@ void MQTT_connect() {
     Serial.printf("MQTT connected.");
 }
 
-bool MQTT_ping() {
+    bool MQTT_ping() {
     static unsigned long lastPing = 0;
 
     if (millis() - lastPing > 120000) {
@@ -203,4 +213,4 @@ bool MQTT_ping() {
         }
     }
     return true;
-}
+    }
