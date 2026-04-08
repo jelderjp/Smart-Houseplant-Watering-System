@@ -20,12 +20,10 @@ TCPClient TheClient;
 Adafruit_MQTT_SPARK mqtt(&TheClient,AIO_SERVER,AIO_SERVERPORT,AIO_USERNAME,AIO_KEY); 
 
 Adafruit_MQTT_Subscribe pumpFeed = Adafruit_MQTT_Subscribe(&mqtt, AIO_USERNAME "/feeds/Pump"); 
-Adafruit_MQTT_Publish sensorFeed = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature, Moisture, Humidity, Air_quality");
 Adafruit_MQTT_Publish pubAQ = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Air_Quality");  
 Adafruit_MQTT_Publish pubTemp = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature"); 
 Adafruit_MQTT_Publish pubMoist = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Moisture"); 
 Adafruit_MQTT_Publish pubHumid = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Humidity");
-Adafruit_MQTT_Publish pubPump = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Pump");
 
 SYSTEM_MODE(AUTOMATIC);
 
@@ -33,6 +31,7 @@ const int OLED_RESET=-1;
 Adafruit_SSD1306 display(OLED_RESET);
 Adafruit_BME280 bme;
 AirQualitySensor airSensor(A5);
+IoTTimer pumpTimer;
 
 const int soilSensor = A0;
 const int pump = D9;
@@ -54,7 +53,6 @@ bool MQTT_ping();
 unsigned long lastDisplayMs = 0;
 unsigned long lastReadMs = 0;
 unsigned long lastPublishMs = 0;
-unsigned long pumpUntilMs = 0;
 
 
 void setup() {
@@ -92,36 +90,37 @@ void setup() {
 
 
 void loop() {
+   
     MQTT_connect();
     MQTT_ping();
-
     Adafruit_MQTT_Subscribe *subscription;
-    while ((subscription = mqtt.readSubscription(200))) {
+    while ((subscription = mqtt.readSubscription(100))) {
         if (subscription == &pumpFeed) {
             pumpCommand = atoi((char *)pumpFeed.lastread);
-            Serial.printf("Pump feed value: %f\n", pumpCommand);
+            Serial.printf("Pump feed value: %i\n", pumpCommand);
 
-            if (pumpCommand > 0.5) {
-                 pumpUntilMs = millis() + 500; pubPump.publish(0.0);  // reset feed so it doesn't re-trigger}
-            if (pumpCommand > 0.5 && !pumpRunning) {
-                    pumpUntilMs = millis() + 500;
-                    pumpRunning = true;
-    }
-        if (pumpCommand <= 0.5) {
-            pumpRunning = false;
+            if (pumpCommand > 0) {
+                 digitalWrite(pump, HIGH);
+                 pumpTimer.startTimer(2000);
             }
         }
-     }
+    }   
+    if(pumpTimer.isTimerReady()){
+        digitalWrite(pump,LOW);
 
-    if (millis() < pumpUntilMs) {
-        digitalWrite(pump, HIGH);
-    } else {
-        digitalWrite(pump, LOW);
+        }
+           
+       
+        if (soilRead < 2000 && !pumpRunning) {
+            digitalWrite(pump, HIGH);
+            pumpRunning = true;
+            pumpTimer.startTimer(2000);
+            Serial.printf("Auto watering triggered.");
+
     }
-    }
-//}
-   
-    if (millis() - lastReadMs >= 5000) {
+    
+
+    if (millis() - lastReadMs >= 8000) {
         lastReadMs = millis();
 
         if (bmeStatus) {
@@ -135,11 +134,6 @@ void loop() {
 
         soilRead = analogRead(soilSensor);
         airQuality = airSensor.slope();
-
-         if (soilRead < 1500){
-        pumpUntilMs = millis() + 500; pubPump.publish(0.0);  
-
-    }
 
         Serial.printf("TempF: %.1f  Press: %.2f inHg  Humid: %.1f  Soil: %d  AQ raw: %d\n",
                       tempF, pressureInHg, humid, soilRead, airSensor.getValue());
@@ -164,8 +158,8 @@ void loop() {
         display.printf("Temp: %.1f F\n", tempF);
         display.printf("Pres: %.2f inHg\n", pressureInHg);
         display.printf("Hum : %.1f %%\n", humid);
-        display.printf("Soil: %d\n", soilRead);
-        display.printf("Air : %d\n", airQuality);
+        display.printf("Soil: %i\n", soilRead);
+        display.printf("Air : %i\n", airQuality);
         display.display();
     }
 
@@ -177,11 +171,10 @@ void loop() {
             pubMoist.publish(soilRead);
             pubHumid.publish(humid);
             pubAQ.publish(airQuality);
-            delay(10000);
 
             Serial.printf("Published sensor data to Adafruit IO.");
             }
-       }
+        }
 }
     float tempToFah(float measurement) {
     return (9.0 / 5.0) * measurement + 32.0;
@@ -190,7 +183,6 @@ void loop() {
     float pressureToInHg(float measurementPa) {
     return measurementPa * 0.0002953;
 }
-
     void MQTT_connect() {
     if (mqtt.connected()) {
         return;
@@ -221,3 +213,5 @@ void loop() {
     }
     return true;
     }
+
+   
