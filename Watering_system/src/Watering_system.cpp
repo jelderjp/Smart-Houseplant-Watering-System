@@ -135,7 +135,7 @@ void loop() {
         soilRead = analogRead(soilSensor);
         airQuality = airSensor.slope();
 
-        Serial.printf("TempF: %.1f  Press: %.2f inHg  Humid: %.1f  Soil: %d  AQ raw: %d\n",
+        Serial.printf("TempF: %.1f  Press: %.2f inHg  Humid: %.1f  Soil: %i  AQ raw: %i\n",
                       tempF, pressureInHg, humid, soilRead, airSensor.getValue());
 
         if (airQuality == AirQualitySensor::FORCE_SIGNAL) {
