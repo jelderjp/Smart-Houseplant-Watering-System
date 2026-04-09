@@ -38,30 +38,34 @@ const int pump = D9;
 bool status;
 bool bmeStatus = false;
 bool pumpRunning = false;
-float tempC = 0.0;
-float tempF = 0.0;
-float pressurePa = 0.0;
-float pressureInHg = 0.0;
-float humid = 0.0;
-int soilRead = 0;
+bool systemReady = false;
+float tempC = 0;
+float tempF = 0;
+float pressurePa = 0;
+float pressureInHg = 0;
+float humid = 0;
+int soilRead;
+int readSoilAverage();
 int airQuality = 0;
 int pumpCommand = 0;
+int lastPumpCommand = 0;
+int dryCount = 0;
 float tempToFah(float measurement);
 float pressureToInHg(float measurementPa);
 void MQTT_connect();
 bool MQTT_ping();
-unsigned long lastDisplayMs = 0;
-unsigned long lastReadMs = 0;
-unsigned long lastPublishMs = 0;
+unsigned int lastDisplayMs = 0;
+unsigned int lastReadMs = 0;
+unsigned int lastPublishMs = 0;
+unsigned int lastWaterTime = 0;
 
 
 void setup() {
-  
+   pinMode(pump, OUTPUT);
+    digitalWrite(pump, LOW);
+
   Serial.begin(9600);
     waitFor(Serial.isConnected, 10000);
-    
-    pinMode(pump, OUTPUT);
-    digitalWrite(pump, LOW);
 
     pinMode(soilSensor, INPUT);
 
@@ -98,27 +102,35 @@ void loop() {
         if (subscription == &pumpFeed) {
             pumpCommand = atoi((char *)pumpFeed.lastread);
             Serial.printf("Pump feed value: %i\n", pumpCommand);
-
-            if (pumpCommand > 0) {
+            delay(500);
+            if (pumpCommand = 1 && lastPumpCommand == 0 && !pumpRunning) {
                  digitalWrite(pump, HIGH);
+                 pumpRunning = true;
                  pumpTimer.startTimer(2000);
+                 Serial.printf("Pump started from MQTT");
             }
+            lastPumpCommand = pumpCommand;     
+         //if(pumpTimer.isTimerReady()){
+           // digitalWrite(pump,LOW);
+            
         }
-    }   
-    if(pumpTimer.isTimerReady()){
-        digitalWrite(pump,LOW);
 
-        }
-           
+    }
+        if (pumpRunning && pumpTimer.isTimerReady()) {
+            digitalWrite(pump, LOW);
+            pumpRunning = false;
+        }       
        
-        if (soilRead < 2000 && !pumpRunning) {
+        if (soilRead < 1700 && !pumpRunning && millis() - lastWaterTime > 30000) {
             digitalWrite(pump, HIGH);
             pumpRunning = true;
             pumpTimer.startTimer(2000);
+            lastWaterTime = millis();
             Serial.printf("Auto watering triggered.");
 
+
     }
-    
+
 
     if (millis() - lastReadMs >= 8000) {
         lastReadMs = millis();
@@ -132,8 +144,13 @@ void loop() {
             pressureInHg = pressureToInHg(pressurePa);
         }
 
-        soilRead = analogRead(soilSensor);
+        soilRead = readSoilAverage();
         airQuality = airSensor.slope();
+
+        if(!systemReady){
+            systemReady = true;
+            return;
+        }
 
         Serial.printf("TempF: %.1f  Press: %.2f inHg  Humid: %.1f  Soil: %i  AQ raw: %i\n",
                       tempF, pressureInHg, humid, soilRead, airSensor.getValue());
@@ -157,7 +174,7 @@ void loop() {
         display.setCursor(0, 0);
         display.printf("Temp: %.1f F\n", tempF);
         display.printf("Pres: %.2f inHg\n", pressureInHg);
-        display.printf("Hum : %.1f %%\n", humid);
+        display.printf("Hum : %.1f\n", humid);
         display.printf("Soil: %i\n", soilRead);
         display.printf("Air : %i\n", airQuality);
         display.display();
@@ -183,6 +200,17 @@ void loop() {
     float pressureToInHg(float measurementPa) {
     return measurementPa * 0.0002953;
 }
+        int readSoilAverage() {
+            long total = 0;
+            const int samples = 10;
+
+            for (int i = 0; i < samples; i++){
+                total += analogRead(soilSensor);
+                delay(100);
+            }
+            return total / samples;
+        }
+
     void MQTT_connect() {
     if (mqtt.connected()) {
         return;
