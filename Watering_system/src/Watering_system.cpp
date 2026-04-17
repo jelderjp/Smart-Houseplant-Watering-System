@@ -180,7 +180,7 @@ void loop() {
         display.display();
     }
 
-    if (millis() - lastPublishMs >= 15000) {
+    if (millis() - lastPublishMs >= 30000) {
         lastPublishMs = millis();
 
         if (mqtt.connected()) {
